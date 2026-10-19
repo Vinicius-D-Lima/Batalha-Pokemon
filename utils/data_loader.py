@@ -1,11 +1,12 @@
-import os 
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from imports import *
+from pathlib import Path
 
-def data_loading(pokemon,batalha):
-    poke = pokemon
-    battle = batalha
-    df_pokemon = pd.read_csv(poke)
-    df_batalha = pd.read_csv(battle)
-    return df_pokemon,df_batalha
+import pandas as pd
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+POKEMON_CSV = DATA_DIR / "pokemon.csv"
+COMBATS_CSV = DATA_DIR / "combats.csv"
+
+
+def data_loading(pokemon_path=POKEMON_CSV, batalha_path=COMBATS_CSV):
+    """Carrega os CSVs de pokémon e de combates."""
+    return pd.read_csv(pokemon_path), pd.read_csv(batalha_path)

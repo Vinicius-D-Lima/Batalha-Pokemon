@@ -1,8 +1,3 @@
-import os 
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from imports import *
-# type_chart.py
 
 # Matriz de efetividade de tipos Pokémon
 # Valores:

@@ -1,58 +1,49 @@
-import os 
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from imports import *
-from modelo_treinado.model import train
+from functools import lru_cache
+
+import pandas as pd
+
+from modelo_treinado.model import FEATURES, STATS, calc_total_vantagem, load_model
 from utils.pre_process_data import pré_processamento
-from modelo_treinado.model import calc_total_vantagem
 
 
-
-model,features,X_test,y_test = train()
-pokemon,batalha = pré_processamento()
-
-
-def prever_ganhador(nome1,nome2):
-
-    p1 = pokemon[pokemon['Name'].str.lower() == nome1.lower()]
-    p2 = pokemon[pokemon['Name'].str.lower() == nome2.lower()]
+class PokemonNaoEncontrado(ValueError):
+    pass
 
 
-
-    if p1.empty or p2.empty:
-        return "Um dos nomes está incorreto. Verifique a grafia."
-    
-
-    stats1 = p1[['HP', 'Attack', 'Defense', 'Sp. Atk', 'Sp. Def', 'Speed']].iloc[0]
-    stats2 = p2[['HP', 'Attack', 'Defense', 'Sp. Atk', 'Sp. Def', 'Speed']].iloc[0]
-
-    type_adv1 = calc_total_vantagem([p1['Type 1'].values[0], p1['Type 2'].values[0]], 
-                                [p2['Type 1'].values[0], p2['Type 2'].values[0]])
-    type_adv2 = calc_total_vantagem([p2['Type 1'].values[0], p2['Type 2'].values[0]], 
-                                [p1['Type 1'].values[0], p1['Type 2'].values[0]])
-
-    print("Vantagem de tipos:", type_adv1, type_adv2)
+@lru_cache(maxsize=1)
+def _pokemon():
+    return pré_processamento()[0]
 
 
+@lru_cache(maxsize=1)
+def _model():
+    return load_model()
 
 
-    input_data = pd.DataFrame([list(stats1) + list(stats2) + [type_adv1, type_adv2]],columns= features)
+def _buscar(nome):
+    resultado = _pokemon()[lambda df: df["Name"] == nome.strip().lower()]
+    if resultado.empty:
+        raise PokemonNaoEncontrado(f"Pokémon não encontrado: '{nome}'. Verifique a grafia.")
+    return resultado.iloc[0]
 
-    resultado = model.predict(input_data)[0]
-    prob = model.predict_proba(input_data)[0]
-    log_prob = model.predict_log_proba(input_data)[0]
 
-    
+def _prob_primeiro_vencer(a, b):
+    tipos_a = [a["Type 1"], a["Type 2"]]
+    tipos_b = [b["Type 1"], b["Type 2"]]
+    linha = [a[s] for s in STATS] + [b[s] for s in STATS]
+    linha += [calc_total_vantagem(tipos_a, tipos_b), calc_total_vantagem(tipos_b, tipos_a)]
+    return _model().predict_proba(pd.DataFrame([linha], columns=FEATURES))[0][1]
 
-    if resultado == 1:
-        vencedor = nome1
-        confiança_modelo = prob[1]
+
+def prever_ganhador(nome1, nome2):
+    """Prevê o vencedor. A previsão é feita nas duas ordens e a média é usada,
+    para que a ordem dos nomes não influencie o resultado."""
+    p1, p2 = _buscar(nome1), _buscar(nome2)
+
+    prob_1 = (_prob_primeiro_vencer(p1, p2) + (1 - _prob_primeiro_vencer(p2, p1))) / 2
+    if prob_1 >= 0.5:
+        vencedor, confianca = p1["Name"].title(), prob_1
     else:
-        vencedor = nome2
-        confiança_modelo = prob[0]
+        vencedor, confianca = p2["Name"].title(), 1 - prob_1
 
-    print("rodou a predicao")
-    
-    return (
-    f"🏆 Provável vencedor: {vencedor}\n"
-    f"🔢 Confiança ajustada: {confiança_modelo * 100:.2f}%\n")
+    return {"vencedor": vencedor, "confianca": round(float(confianca), 4)}

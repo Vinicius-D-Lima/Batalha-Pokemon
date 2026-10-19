@@ -1,48 +1,33 @@
-from imports import *
-from predicoes.prediction import prever_ganhador
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from predicoes.type_chart import type_chart
 
-app = FastAPI()
+from predicoes.prediction import PokemonNaoEncontrado, prever_ganhador
 
-class pokemonRequest(BaseModel):
+app = FastAPI(title="Batalha Pokémon", description="Previsão de vencedor de batalhas Pokémon com ML")
+
+# Permite que o app web (Expo) consuma a API.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+class PokemonRequest(BaseModel):
     nome1: str
     nome2: str
+
+
+class PrevisaoResponse(BaseModel):
+    vencedor: str
+    confianca: float
+
 
 @app.get("/")
 def home():
     return {"mensagem": "API de IA Pokémon online!"}
 
-@app.post("/prever")
-def prever_batalha(data:pokemonRequest):
-    resultado = prever_ganhador(data.nome1,data.nome2)
-    return {"resultado": resultado}
 
-
-# para rodar a api localmente 
-# digitar no terminal :
-# python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
-# se tudo estiver certo acesse no navegador:
-# http://127.0.0.1:8000
-# E para testar a API via formulário interativo (Swagger):
-# http://127.0.0.1:8000/docs
-
-#192.168.1.71
-
-
-
-
-
-
-
-
-#def main():
- #   name1 = input("digite o nome do primeiro pokemon: ")
-  #  name2 = input("digite o nome do seguundo pokemon: ")
-
-   # result = prever_ganhador(name1,name2)
-  #  print(result)
-
-#if __name__ == '__main__':
-   # main()
+@app.post("/prever", response_model=PrevisaoResponse)
+def prever_batalha(data: PokemonRequest):
+    try:
+        return prever_ganhador(data.nome1, data.nome2)
+    except PokemonNaoEncontrado as erro:
+        raise HTTPException(status_code=404, detail=str(erro))
