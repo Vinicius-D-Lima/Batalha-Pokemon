@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+tempCodeRunnerFile.py
+
+# Modelo treinado (gerado por `python -m modelo_treinado.model`)
+*.pkl
+
+# Editor / Expo
+.vscode/
+.expo/
+.DS_Store
+
+# Node
+node_modules/

@@ -1,53 +1,86 @@
-import os 
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from imports import *   
-from utils.pre_process_data import pré_processamento
-from predicoes.type_chart import type_chart
+"""Treino do modelo. Rode com: python -m modelo_treinado.model"""
+from pathlib import Path
 
-pokemon,batalha = pré_processamento()
-def calc_total_vantagem(tipo_atacante,tipo_defensor):
+import joblib
+import pandas as pd
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import MinMaxScaler
+
+from predicoes.type_chart import type_chart
+from utils.pre_process_data import pré_processamento
+
+MODEL_PATH = Path(__file__).resolve().parent / "modelo_pokemon.pkl"
+
+STATS = ["HP", "Attack", "Defense", "Sp. Atk", "Sp. Def", "Speed"]
+FEATURES = (
+    [f"{s}_1" for s in STATS]
+    + [f"{s}_2" for s in STATS]
+    + ["type_advantage_1", "type_advantage_2"]
+)
+
+
+def calc_total_vantagem(tipo_atacante, tipo_defensor):
+    """Multiplicador total de efetividade dos tipos do atacante sobre os do defensor."""
     multiplier = 1.0
     for atk_type in tipo_atacante:
         if pd.notna(atk_type):
             for def_type in tipo_defensor:
                 if pd.notna(def_type):
-                    multiplier *= type_chart.get(atk_type.lower(),{}).get(def_type.lower(),1.0)
+                    multiplier *= type_chart.get(atk_type.lower(), {}).get(def_type.lower(), 1.0)
     return multiplier
 
-def train():
-    pokemon.rename(columns = {'#' :'id'},inplace = True)
 
-    poke1 = pokemon.add_suffix('_1')
-    poke1.rename(columns = {'id_1' : 'First_pokemon'},inplace = True)
-    poke2 = pokemon.add_suffix('_2')
-    poke2.rename(columns = {'id_2' : 'Second_pokemon'},inplace = True)
+def montar_dataset():
+    pokemon, batalha = pré_processamento()
 
-    df = batalha.merge(poke1, on = 'First_pokemon').merge(poke2, on = 'Second_pokemon')
-    df['ganhador_label'] = (df['Winner'] == df['First_pokemon']).astype(int)
-    df['type_advantage_1'] = df.apply(lambda row:  calc_total_vantagem([row['Type 1_1'],row['Type 2_1']],[row['Type 1_2'],row['Type 2_2']]),axis = 1)
-    df['type_advantage_2'] = df.apply(lambda row:  calc_total_vantagem([row['Type 1_2'],row['Type 2_2']],[row['Type 1_1'],row['Type 2_1']]),axis = 1)
+    poke1 = pokemon.add_suffix("_1").rename(columns={"id_1": "First_pokemon"})
+    poke2 = pokemon.add_suffix("_2").rename(columns={"id_2": "Second_pokemon"})
+    df = batalha.merge(poke1, on="First_pokemon").merge(poke2, on="Second_pokemon")
 
-    features = [
-        'HP_1', 'Attack_1', 'Defense_1', 'Sp. Atk_1', 'Sp. Def_1', 'Speed_1',
-        'HP_2', 'Attack_2', 'Defense_2', 'Sp. Atk_2', 'Sp. Def_2', 'Speed_2',
-        'type_advantage_1', 'type_advantage_2'
-    ]
+    df["ganhador_label"] = (df["Winner"] == df["First_pokemon"]).astype(int)
+    df["type_advantage_1"] = df.apply(
+        lambda r: calc_total_vantagem([r["Type 1_1"], r["Type 2_1"]], [r["Type 1_2"], r["Type 2_2"]]),
+        axis=1,
+    )
+    df["type_advantage_2"] = df.apply(
+        lambda r: calc_total_vantagem([r["Type 1_2"], r["Type 2_2"]], [r["Type 1_1"], r["Type 2_1"]]),
+        axis=1,
+    )
+    return df
 
-    X = df[features]
-    y = df['ganhador_label']
 
-    #aqui eu normalizei os status dividindo eles por 100 para entrar na escala de 1 ate 0
-    from sklearn.preprocessing import MinMaxScaler
+def train(salvar=True):
+    """Treina o pipeline (scaler + modelo), avalia no conjunto de teste e salva em disco."""
+    df = montar_dataset()
+    X_train, X_test, y_train, y_test = train_test_split(
+        df[FEATURES], df["ganhador_label"], test_size=0.2, random_state=42
+    )
 
-    scaler = MinMaxScaler()
+    # O scaler faz parte do pipeline, então a previsão aplica a mesma normalização do treino.
+    model = make_pipeline(
+        MinMaxScaler(),
+        GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42),
+    )
+    model.fit(X_train, y_train)
 
-    X_scaled = scaler.fit_transform(X)
+    acuracia = accuracy_score(y_test, model.predict(X_test))
+    print(f"Acurácia no conjunto de teste: {acuracia:.2%}")
 
-    X_train,X_test, y_train,y_test = train_test_split(X_scaled,y,test_size=0.2, random_state = 42)
-    model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42)
-    model.fit(X_train,y_train)
+    if salvar:
+        joblib.dump(model, MODEL_PATH)
+        print(f"Modelo salvo em {MODEL_PATH}")
+    return model, acuracia
 
-    joblib.dump(model,'modelo_pokemon.pkl')
-    print("rodou o modelo")
-    return model,features,X_test,y_test
+
+def load_model():
+    """Carrega o modelo salvo; se ainda não existir, treina e salva."""
+    if MODEL_PATH.exists():
+        return joblib.load(MODEL_PATH)
+    return train()[0]
+
+
+if __name__ == "__main__":
+    train()
