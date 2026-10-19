@@ -6,7 +6,7 @@ venv/
 .pytest_cache/
 tempCodeRunnerFile.py
 
-# Modelo treinado (gerado por `python -m modelo_treinado.model`)
+# Modelo treinado (gerado por `python -m ml.train`)
 *.pkl
 
 # Editor / Expo
